@@ -15,6 +15,8 @@ def generate_cached(model, tokenizer, prompt, max_new_token=4):
                 out = model(input_ids=seq[:,-1:], past_key_values=past, use_cache=True)
 
         past = out.past_key_values
+        print("Past layer key shape: ", end="")
+        print(past.layers[0].keys.shape)
         next_id = out.logits[0, -1].argmax()
         if next_id == tokenizer.eos_token_id:
             break
