@@ -1,6 +1,6 @@
 import argparse, time
 import torch
-from build_your_own_kv_cache.loader import load_model, sync, report
+from build_your_own_kv_cache.loader import PROMPT, load_model, sync, report 
 
 def generate_cached(model, tokenizer, prompt, max_new_token=4, verbose=False):
     seq = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
@@ -33,10 +33,9 @@ def main():
     parser.add_argument("--tokens", type=int, default=32)
     args = parser.parse_args()
 
-    PROMPT = "The capital of France is"
     tokenizer, model = load_model()
 
-    generate_cached(model, tokenizer, PROMPT, 8)                  # warm-up, discarded
+    generate_cached(model, tokenizer, PROMPT, 8)                            # warm-up, discarded
     text, times = generate_cached(model, tokenizer, PROMPT, args.tokens)
     report("cached", text, times)
 
