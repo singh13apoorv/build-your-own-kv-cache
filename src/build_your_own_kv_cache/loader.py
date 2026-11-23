@@ -3,6 +3,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_NAME = "NousResearch/Meta-Llama-3.1-8B"
 REVISION = "1f47e50cdbe801ad8a5174156ec3a0655108fb9f"
+PROMPT = "The capital of France is"
 
 if torch.cuda.is_available():
     DEVICE = "cuda"
@@ -37,3 +38,13 @@ def load_model(with_model=True):
     ).eval()
 
     return tokenizer, model
+
+def report(mode, text, step_times):
+    """Print the Stage 1 numbers for one timed generation."""
+    ms = [t * 1000 for t in step_times]
+    print(f"{mode}: {len(ms)} steps, total {sum(step_times):.2f} s")
+    print(f"  step 1 (prefill): {ms[0]:.1f} ms")
+    if len(ms) > 1:
+        print(f"  step 2: {ms[1]:.1f} ms   last: {ms[-1]:.1f} ms   "
+              f"last/step2: {ms[-1] / ms[1]:.1f}x")
+    print(f"  text: {text}")
