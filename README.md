@@ -10,7 +10,7 @@ Built while working through Module 03 ("Prefill, Decode, KV Cache & Memory") of 
 
 | Machine | Uncached | Cached | Speedup | KV budget | 4K | 32K | 128K |
 |---|---|---|---|---|---|---|---|
-| Apple M5 Pro (MPS) | 3.26 s | 2.00 s | 1.6x | 20.5 GiB | 40 req | 5 req | 1 req |
+| Apple M5 Pro, 48 GB unified memory (MPS) | 3.26 s | 2.00 s | 1.6x | 20.5 GiB | 40 req | 5 req | 1 req |
 | NVIDIA RTX 4090 (CUDA) | _pending_ | _pending_ | | | | | |
 | NVIDIA H100 (CUDA) | _pending_ | _pending_ | | | | | |
 
