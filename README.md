@@ -8,22 +8,44 @@ Built while working through Module 03 ("Prefill, Decode, KV Cache & Memory") of 
 
 ## Results
 
-| Machine | Uncached | Cached | Speedup | KV budget | 4K | 32K | 128K |
-|---|---|---|---|---|---|---|---|
-| Apple M5 Pro, 48 GB unified memory (MPS) | 3.26 s | 2.00 s | 1.6x | 20.5 GiB | 40 req | 5 req | 1 req |
-| NVIDIA RTX 4090 (CUDA) | _pending_ | _pending_ | | | | | |
-| NVIDIA H100 (CUDA) | _pending_ | _pending_ | | | | | |
+### Cached vs uncached generation
 
-Llama 3.1 8B in BF16, greedy decoding, prompt "The capital of France is". Generation totals are for 32 new tokens on the Mac (256 on GPUs). Both loops produce identical text. The last three columns say how many requests fit at once if every request uses that full context length.
+Total time to generate each number of new tokens, uncached / cached, with the speedup from the cache.
 
-Full measurements and notes for each machine: [`results/memory.md`](results/memory.md).
+| Machine | 32 tokens | 256 tokens | 512 tokens |
+|---|---|---|---|
+| Apple M5 Pro, 48 GB unified memory (MPS) | 2.20 s / 2.03 s (1.1x) | 28.56 s / 16.59 s (1.7x) | 90.46 s / 32.44 s (**2.8x**) |
+| NVIDIA RTX 4090, 24 GB (CUDA) | 0.90 s / 0.82 s (1.1x) | 7.73 s / 6.71 s (1.2x) | 21.75 s / 13.35 s (**1.6x**) |
+| NVIDIA H100 SXM, 80 GB (CUDA) | 1.09 s / 2.34 s (0.5x) | 10.99 s / 10.82 s (1.0x) | 22.61 s / 20.39 s (1.1x) |
+
+How much slower the last step is than step 2:
+
+| Machine | Uncached at 512 tokens | Cached at 512 tokens |
+|---|---|---|
+| Apple M5 Pro | 63.6 → 322.5 ms (5.1x) | 63.4 → 61.7 ms (flat) |
+| NVIDIA RTX 4090 | 27.6 → 73.0 ms (2.6x) | 25.3 → 26.0 ms (flat) |
+| NVIDIA H100 SXM | 12.4 → 51.9 ms (4.2x) | 18.8 → 35.9 ms (not flat, see below) |
+
+### How many requests fit
+
+| Machine | Capacity | Weights + runtime | KV budget | 4K context | 32K context | 128K context |
+|---|---|---|---|---|---|---|
+| Apple M5 Pro (MPS) | 37.4 GiB | 15.0 GiB | 20.5 GiB | 40 | 5 | 1 |
+| NVIDIA RTX 4090 | 23.5 GiB | 15.3 GiB | 6.2 GiB | 12 | 1 | 0 |
+| NVIDIA H100 SXM | 79.2 GiB | 15.5 GiB | 61.7 GiB | 123 | 15 | 3 |
+
+Budget = capacity − weights and runtime − a 2 GiB working-memory allowance. Each column assumes every request uses that full context length.
+
+Llama 3.1 8B in BF16, greedy decoding, prompt "The capital of France is". Full measurements and notes for each machine: [`memory.md`](memory.md).
 
 ## What the numbers show
 
-- **The cache turns growing work into flat work.** Without a cache, every step re-processes the whole sequence, so steps get slower as the text gets longer (1.2x slower by step 32 on the Mac). With a cache, step 1 processes the prompt (the prefill), and every later step processes only the newest token, so step times stay flat.
-- **The gap is small at 32 tokens and grows with length.** Each step reads all ~16 GB of weights regardless. While the sequence is short, that dominates, and re-processing a few dozen tokens adds little on top. Longer runs make the difference much larger, which is why GPU runs use 256 tokens.
-- **The cache costs 131,072 bytes (128 KiB) per token:** 2 (K and V) × 32 layers × 8 KV heads × 128 head dimension × 2 bytes (BF16). It's computed from the cache tensors the model actually produces, not from the config.
-- **Long contexts are expensive.** One 128K-token request needs 16 GiB of cache, about as much as the model's weights. That's why the number of requests a GPU can hold drops so fast as context grows.
+- **The cache turns growing work into flat work.** Without a cache, every step re-processes the whole sequence, so steps get slower as the text grows: 5.1x slower by step 512 on the Mac, 2.6x on the 4090. With a cache, step 1 processes the prompt (the prefill), and every later step processes only the newest token, so step times stay flat.
+- **The advantage grows with length.** Each step reads all ~16 GB of weights regardless. At 32 tokens that dominates, and re-processing a few dozen tokens adds little, so the cache saves only about 10%. By 512 tokens it saves 2.8x on the Mac and 1.6x on the 4090.
+- **On the H100, this loop is limited by the host, not the GPU.** Reading the weights takes about 5 ms per step on an H100, but steps took 12-60 ms and varied a lot. Most of each step is time outside the GPU: Python, launching hundreds of small kernels one at a time, and the cache's bookkeeping on every layer. That overhead is larger on the cached path, so the cache barely helped (1.0-1.1x) and was slower at 32 tokens. Cached decode averaged about 25 tok/s, slower than the 4090. A loop like this can't use an H100's speed. Static caches with CUDA graphs, or an inference engine, remove the overhead; that's the subject of later modules.
+- **Cached and uncached can disagree on a GPU.** On the 4090 the two loops produced different text from about the 14th generated token. Re-processing the whole sequence uses different attention kernels, which round slightly differently, and one close call between two tokens went the other way. The cached text matches the Mac, the H100 and Module 01's output. The cache changes the work, not the math, but the floating-point details can still flip a near-tie.
+- **The cache costs 131,072 bytes (128 KiB) per token:** 2 (K and V) × 32 layers × 8 KV heads × 128 head dimension × 2 bytes (BF16). It's computed from the cache tensors the model actually produces, and it's the same on every machine.
+- **Long contexts are expensive.** One 128K-token request needs 16 GiB of cache, about as much as the model's weights. The 4090 can't hold even one; the H100 holds three.
 
 ## What's inside
 
@@ -41,8 +63,8 @@ build-your-own-kv-cache/
 │   ├── run_cached.sh
 │   ├── run_inspect.sh
 │   └── run_budget.sh
-├── results/
-│   └── memory.md                       # measurements per machine
+├── run_all.sh                          # detects the machine and runs everything
+├── memory.md                           # measurements per machine
 ├── pyproject.toml
 └── uv.lock                             # every dependency pinned
 ```
@@ -71,16 +93,24 @@ No Hugging Face login is needed: `NousResearch/Meta-Llama-3.1-8B` is an ungated 
 
 ## Running
 
-Each script runs one measurement in its own process and saves its output to `logs/<machine>/`. The first argument is a short name for the machine you're on. Run them one at a time, not in parallel, so they don't compete for the GPU.
+One command runs everything on the current machine:
 
 ```
-bash run_scripts/run_uncached.sh <machine> <tokens>   # e.g. m5pro 32, h100 256
+bash run_all.sh
+```
+
+It names the machine from its hardware (`m5pro`, `rtx4090`, `h100-sxm`, and so on), records it, and runs each measurement in its own process, one after another, saving the output to `logs/<machine>/`. Pass a name to override it (`bash run_all.sh mybox`), or set `TOKENS="256"` to change the lengths (default `32 256 512`).
+
+To run a single measurement:
+
+```
+bash run_scripts/run_uncached.sh <machine> <tokens>
 bash run_scripts/run_cached.sh   <machine> <tokens>
 bash run_scripts/run_inspect.sh  <machine>
 bash run_scripts/run_budget.sh   <machine> [allowance_gib]   # default 2
 ```
 
-Use 32 tokens on a Mac and 256 or more on a fast GPU, where short runs hide the difference.
+Don't run two at once; they would compete for the GPU.
 
 ## How the measurements work
 
