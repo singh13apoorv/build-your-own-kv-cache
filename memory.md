@@ -12,8 +12,8 @@ All runs measured 2026-11-24.
 ```
 box:          Apple M5 Pro · MPS · 48 GB unified memory
 uncached 32:   2.20 s   cached 32:   2.03 s   (1.1x)   same text: yes
-uncached 256: 28.56 s   cached 256: 16.59 s   (1.7x)   same text: TODO
-uncached 512: 90.46 s   cached 512: 32.44 s   (2.8x)   same text: TODO
+uncached 256: 28.56 s   cached 256: 16.59 s   (1.7x)   same text: no (diverge after "a city of science,")
+uncached 512: 90.46 s   cached 512: 32.44 s   (2.8x)   same text: no (same point)
 steps:        uncached grow · 32: 61.8 -> 76.1 ms (1.2x) · 256: 62.4 -> 177.7 ms (2.8x) · 512: 63.6 -> 322.5 ms (5.1x)
               cached flat after the prefill step (prefill ~62 ms, then ~62-67 ms at every length)
 cache/token:  131072 bytes  (2 x 32 x 8 x 128 x 2, from real shapes)
@@ -25,6 +25,9 @@ envelope:     4K -> 40 req · 32K -> 5 req · 128K -> 1 req
 - **The textbook result.** Uncached steps grow with length (5.1x slower by step 512), cached steps stay
   flat, and the cache's advantage grows from 1.1x at 32 tokens to 2.8x at 512.
 - **Cached decode is about 16 tok/s** (≈63 ms per step), matching Module 01's 17.2 tok/s on this Mac.
+- **The loops agree for about 60 tokens, then diverge.** After "a city of science,", the cached loop
+  continues "a city of education" and the uncached loop "a city of cinema". It's a late near-tie flip,
+  like the one the lab describes; 32-token runs end before it, so they match.
 - **The envelope is optimistic.** Capacity is the share of unified memory Metal allows one process,
   and macOS and other apps compete for it.
 - **Residents on MPS** come from `torch.mps.driver_allocated_memory()`;
@@ -48,6 +51,7 @@ envelope:     4K -> 12 req · 32K -> 1 req · 128K -> 0 req
 - **The two loops diverge early on this GPU.** Right after "a city of history,", the cached loop
   continues "a city of culture…" and the uncached loop continues "culture, and art…". The cached text
   matches the Mac, the H100 and Module 01's greedy output, so the uncached loop flipped a near-tie.
+  The 4090's cached text is identical to the H100's for all 512 tokens.
   Re-processing the whole sequence goes through different attention kernels, with slightly different
   rounding, and one close call goes the other way. Everything after that point differs.
 - **Steps behave as expected.** Uncached steps grow and cached steps stay flat. Cached decode is about
@@ -60,8 +64,8 @@ envelope:     4K -> 12 req · 32K -> 1 req · 128K -> 0 req
 ```
 box:          NVIDIA H100 80GB HBM3 (SXM) · Vast.ai · driver 615.71.09, CUDA 13.4
 uncached 32:   1.09 s   cached 32:   2.34 s   (0.5x)   same text: yes
-uncached 256: 10.99 s   cached 256: 10.82 s   (1.0x)   same text: TODO
-uncached 512: 22.61 s   cached 512: 20.39 s   (1.1x)   same text: TODO
+uncached 256: 10.99 s   cached 256: 10.82 s   (1.0x)   same text: yes
+uncached 512: 22.61 s   cached 512: 20.39 s   (1.1x)   same text: yes
 steps:        uncached grow · 32: 12.3 -> 40.2 ms (3.3x) · 256: 12.2 -> 43.3 ms (3.5x) · 512: 12.4 -> 51.9 ms (4.2x)
               cached NOT flat · prefill ~20 ms · 32: 18.4 -> 60.2 ms · 256: 18.8 -> 36.0 ms · 512: 18.8 -> 35.9 ms
 cache/token:  131072 bytes  (2 x 32 x 8 x 128 x 2, from real shapes)
